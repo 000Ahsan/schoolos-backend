@@ -19,7 +19,14 @@ class StudentController extends Controller
             $query->where('name', 'like', '%' . $request->search . '%')
                   ->orWhere('roll_no', 'like', '%' . $request->search . '%');
         }
-        return response()->json($query->get());
+        $students = $query->get();
+        $students->transform(function($student) {
+            if ($student->photo_path) {
+                $student->photo_url = asset('storage/' . $student->photo_path);
+            }
+            return $student;
+        });
+        return response()->json($students);
     }
 
     public function store(Request $request) {
@@ -28,11 +35,25 @@ class StudentController extends Controller
             'name' => 'required|string',
             'father_name' => 'required|string',
             'class_id' => 'required|exists:classes,id',
+            'date_of_birth' => 'required|date',
+            'gender' => 'required|in:male,female,other',
             'admission_date' => 'required|date',
-            'parent_phone' => ['required', 'regex:/^\+92[0-9]{10}$/'],
-            'parent_whatsapp' => ['nullable', 'regex:/^\+92[0-9]{10}$/'],
+            'guardian_name' => 'required|string',
+            'guardian_relation' => 'required|string',
+            'guardian_phone' => ['required', 'regex:/^\+92[0-9]{10}$/'],
+            'guardian_cnic' => 'nullable|string',
+            'b_form_no' => 'nullable|string',
+            'emergency_contact' => ['nullable', 'regex:/^\+92[0-9]{10}$/'],
+            'address' => 'nullable|string',
+            'photo' => 'nullable|image|max:2048',
             'status' => 'nullable|in:active,left,graduated,suspended'
         ]);
+
+        if ($request->hasFile('photo')) {
+            $path = $request->file('photo')->store('students', 'public');
+            $validated['photo_path'] = $path;
+        }
+        unset($validated['photo']);
 
         $student = Student::create($validated);
         return response()->json($student, 201);
@@ -42,6 +63,12 @@ class StudentController extends Controller
         $student = Student::with(['discounts' => function ($q) {
             $q->where('is_active', 1);
         }, 'invoices'])->findOrFail($id);
+        
+        // Append full URL if photo exists
+        if ($student->photo_path) {
+            $student->photo_url = asset('storage/' . $student->photo_path);
+        }
+        
         return response()->json($student);
     }
 
@@ -53,10 +80,29 @@ class StudentController extends Controller
             'name' => 'nullable|string',
             'father_name' => 'nullable|string',
             'class_id' => 'nullable|exists:classes,id',
-            'parent_phone' => ['nullable', 'regex:/^\+92[0-9]{10}$/'],
-            'parent_whatsapp' => ['nullable', 'regex:/^\+92[0-9]{10}$/'],
+            'date_of_birth' => 'nullable|date',
+            'gender' => 'nullable|in:male,female,other',
+            'admission_date' => 'nullable|date',
+            'guardian_name' => 'nullable|string',
+            'guardian_relation' => 'nullable|string',
+            'guardian_phone' => ['nullable', 'regex:/^\+92[0-9]{10}$/'],
+            'guardian_cnic' => 'nullable|string',
+            'b_form_no' => 'nullable|string',
+            'emergency_contact' => ['nullable', 'regex:/^\+92[0-9]{10}$/'],
+            'address' => 'nullable|string',
+            'photo' => 'nullable|image|max:2048',
             'status' => 'nullable|in:active,left,graduated,suspended'
         ]);
+
+        if ($request->hasFile('photo')) {
+            // Delete old photo if exists
+            if ($student->photo_path) {
+                \Storage::disk('public')->delete($student->photo_path);
+            }
+            $path = $request->file('photo')->store('students', 'public');
+            $validated['photo_path'] = $path;
+        }
+        unset($validated['photo']);
 
         $student->update($validated);
         return response()->json($student);

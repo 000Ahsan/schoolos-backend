@@ -5,8 +5,6 @@ use Illuminate\Database\Eloquent\Model;
 class StudentDiscount extends Model {
     protected $guarded = [];
     protected $casts = [
-        'valid_from' => 'date',
-        'valid_until' => 'date',
     ];
 
     public function student() {

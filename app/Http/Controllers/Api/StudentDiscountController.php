@@ -17,8 +17,6 @@ class StudentDiscountController extends Controller {
             'discount_value' => 'required|numeric|min:0',
             'applies_to' => 'nullable|in:all,tuition_only,specific_head',
             'fee_head_name' => 'nullable|string|max:100',
-            'valid_from' => 'required|date',
-            'valid_until' => 'nullable|date',
             'remarks' => 'nullable|string'
         ]);
         $validated['student_id'] = $studentId;

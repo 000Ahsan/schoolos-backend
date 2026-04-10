@@ -26,6 +26,8 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
     
     Route::get('academic-years', [AcademicYearController::class, 'index']);
     Route::post('academic-years', [AcademicYearController::class, 'store']);
+    Route::put('academic-years/{id}', [AcademicYearController::class, 'update']);
+    Route::delete('academic-years/{id}', [AcademicYearController::class, 'destroy']);
     Route::post('academic-years/{id}/set-current', [AcademicYearController::class, 'setCurrent']);
     Route::post('academic-years/{id}/promote-students', [AcademicYearController::class, 'promoteStudents']);
 
