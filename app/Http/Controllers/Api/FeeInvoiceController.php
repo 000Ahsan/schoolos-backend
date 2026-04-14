@@ -39,6 +39,10 @@ class FeeInvoiceController extends Controller
             $query->where('status', $request->status);
         }
 
+        if ($request->filled('student_id')) {
+            $query->where('student_id', $request->student_id);
+        }
+
         if ($request->filled('month')) $query->where('month', $request->month);
         if ($request->filled('year')) $query->where('year', $request->year);
 

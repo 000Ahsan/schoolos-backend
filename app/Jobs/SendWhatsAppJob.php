@@ -18,6 +18,20 @@ class SendWhatsAppJob implements ShouldQueue, NotTenantAware {
     public $phone;
     public $message;
 
+    /**
+     * The number of times the job may be attempted.
+     *
+     * @var int
+     */
+    public $tries = 3;
+
+    /**
+     * The number of seconds to wait before retrying the job.
+     *
+     * @var int
+     */
+    public $backoff = 30;
+
     public function __construct($logId, $phone, $message) {
         $this->logId = $logId;
         $this->phone = $phone;
@@ -43,16 +57,24 @@ class SendWhatsAppJob implements ShouldQueue, NotTenantAware {
                     'sent_at' => now(),
                 ]);
             } else {
-                $log->update([
-                    'status' => 'failed',
-                    'error_message' => $response->json('error') ?? 'Unknown error from Node API',
-                ]);
+                $error = $response->json('error') ?? 'Unknown error from Node API';
+                $log->update(['error_message' => $error]);
+
+                // Throw exception to trigger retry if we have attempts left
+                if ($this->attempts() < $this->tries) {
+                    throw new \Exception("WhatsApp Send Failed: " . $error);
+                } else {
+                    $log->update(['status' => 'failed']);
+                }
             }
         } catch (\Exception $e) {
-            $log->update([
-                'status' => 'failed',
-                'error_message' => $e->getMessage(),
-            ]);
+            $log->update(['error_message' => $e->getMessage()]);
+            
+            if ($this->attempts() < $this->tries) {
+                throw $e;
+            } else {
+                $log->update(['status' => 'failed']);
+            }
         }
     }
 }

@@ -52,7 +52,26 @@ class AcademicYearController extends Controller {
 
     public function destroy($id) {
         $year = AcademicYear::findOrFail($id);
-        // Maybe check if it's referenced in fee invoices? But usually schools delete demo data.
+        
+        // Check for dependencies
+        if ($year->feeStructures()->exists()) {
+            return response()->json([
+                'message' => 'Cannot delete academic year as it has associated fee structures. Please delete the fee structures first.'
+            ], 422);
+        }
+
+        if ($year->invoices()->exists()) {
+            return response()->json([
+                'message' => 'Cannot delete academic year as it has associated fee invoices. Please delete the fee invoices first.'
+            ], 422);
+        }
+
+        if ($year->is_current) {
+            return response()->json([
+                'message' => 'Cannot delete the current active academic year.'
+            ], 422);
+        }
+
         $year->delete();
         return response()->json(null, 204);
     }

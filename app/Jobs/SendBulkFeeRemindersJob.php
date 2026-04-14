@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Student;
 use App\Models\WhatsAppLog;
+use App\Models\SchoolSetting;
 use App\Services\WhatsAppService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -44,7 +45,9 @@ class SendBulkFeeRemindersJob implements ShouldQueue, NotTenantAware
             
             if ($totalDue <= 0) continue;
 
-            $schoolName = config('app.name', 'SchoolOS');
+            $schoolSettings = SchoolSetting::first();
+            $schoolName = $schoolSettings ? $schoolSettings->school_name : config('app.name', 'SchoolOS');
+            
             $message = "Dear Parent,\n\nThis is a reminder from *{$schoolName}* regarding the outstanding fee of RS " . number_format($totalDue) . " for your child *{$student->name}* ({$student->roll_no}).\n\nPlease clear the dues as soon as possible to avoid any inconvenience.\n\nThank you.";
 
             try {

@@ -21,11 +21,11 @@ class FeeDefaulterController extends Controller
 
         // Main Query: Students who have at least one invoice that is overdue and not paid
         $query = Student::with(['class', 'invoices' => function($q) use ($today) {
-                $q->where('status', '!=', 'paid')
+                $q->whereIn('status', ['pending', 'overdue', 'partial'])
                   ->where('due_date', '<', $today);
             }])
             ->whereHas('invoices', function($q) use ($today) {
-                $q->where('status', '!=', 'paid')
+                $q->whereIn('status', ['pending', 'overdue', 'partial'])
                   ->where('due_date', '<', $today);
             });
 
@@ -74,7 +74,7 @@ class FeeDefaulterController extends Controller
     {
         $today = now()->format('Y-m-d');
         $student = Student::with(['invoices' => function($q) use ($today) {
-            $q->where('status', '!=', 'paid')
+            $q->whereIn('status', ['pending', 'overdue', 'partial'])
               ->where('due_date', '<', $today)
               ->orderBy('due_date', 'asc');
         }])->findOrFail($id);

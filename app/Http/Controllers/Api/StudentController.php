@@ -16,9 +16,17 @@ class StudentController extends Controller
             $query->where('status', $request->status);
         }
         if ($request->has('search')) {
-            $query->where('name', 'like', '%' . $request->search . '%')
+            $query->where(function($q) use ($request) {
+                $q->where('name', 'like', '%' . $request->search . '%')
                   ->orWhere('roll_no', 'like', '%' . $request->search . '%');
+            });
         }
+
+        // Add balance sum
+        $query->withSum(['invoices as balance' => function($q) {
+            $q->whereIn('status', ['pending', 'partial', 'overdue']);
+        }], 'balance');
+
         $students = $query->get();
         $students->transform(function($student) {
             if ($student->photo_path) {

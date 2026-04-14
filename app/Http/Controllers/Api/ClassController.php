@@ -8,7 +8,7 @@ use App\Models\Classes;
 class ClassController extends Controller
 {
     public function index() {
-        return response()->json(Classes::all());
+        return response()->json(Classes::withCount('students')->get());
     }
 
     public function store(Request $request) {

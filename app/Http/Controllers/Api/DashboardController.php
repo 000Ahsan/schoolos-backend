@@ -17,9 +17,9 @@ class DashboardController extends Controller {
             'collected_month' => (float) FeePayment::whereMonth('payment_date', Carbon::now()->month)
                                     ->whereYear('payment_date', Carbon::now()->year)
                                     ->sum('amount_paid'),
-            'pending_amount' => (float) FeeInvoice::where('status', '!=', 'paid')->sum('balance'),
+            'pending_amount' => (float) FeeInvoice::whereIn('status', ['pending', 'overdue', 'partial'])->sum('balance'),
             'defaulter_count' => Student::whereHas('invoices', function($q) { 
-                                     $q->where('balance', '>', 0); 
+                                     $q->whereIn('status', ['pending', 'overdue', 'partial'])->where('balance', '>', 0); 
                                  })->count()
         ]);
     }

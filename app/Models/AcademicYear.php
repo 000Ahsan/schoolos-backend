@@ -11,4 +11,12 @@ class AcademicYear extends Model {
         'start_date' => 'date',
         'end_date' => 'date',
     ];
+
+    public function feeStructures() {
+        return $this->hasMany(FeeStructure::class);
+    }
+
+    public function invoices() {
+        return $this->hasMany(FeeInvoice::class);
+    }
 }

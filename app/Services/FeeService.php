@@ -50,15 +50,21 @@ class FeeService {
                 $currentCharges = $structures->sum('amount');
 
                 // Get arrears (unpaid balances from previous months)
-                $arrears = FeeInvoice::where('student_id', $student->id)
-                    ->where('status', '!=', 'paid')
+                $arrearsQuery = FeeInvoice::where('student_id', $student->id)
+                    ->whereIn('status', ['pending', 'overdue', 'partial'])
                     ->where(function($q) use ($month, $year) {
                         $q->where('year', '<', $year)
                           ->orWhere(function($sq) use ($month, $year) {
                               $sq->where('year', $year)->where('month', '<', $month);
                           });
-                    })
-                    ->sum('balance');
+                    });
+
+                $arrears = $arrearsQuery->sum('balance');
+
+                // Mark previous invoices as carried_forward to clean up records
+                if ($arrears > 0) {
+                    $arrearsQuery->update(['status' => 'carried_forward']);
+                }
 
                 // Get active discounts - Removed date filters as they were removed from the schema
                 $discounts = StudentDiscount::where('student_id', $student->id)
@@ -171,8 +177,35 @@ class FeeService {
 
             $invoice->amount_paid += $amount;
             $invoice->balance = $invoice->net_amount - $invoice->amount_paid;
+            $statusBefore = $invoice->status;
             $invoice->status = $invoice->balance <= 0 ? 'paid' : 'partial';
             $invoice->save();
+
+            // Handle Arrears Allocation: Update older carried_foward invoices
+            if ($invoice->arrears > 0) {
+                $remainingToAllocate = $amount;
+                
+                $carriedForwardInvoices = FeeInvoice::where('student_id', $invoice->student_id)
+                    ->where('status', 'carried_forward')
+                    ->orderBy('year', 'asc')
+                    ->orderBy('month', 'asc')
+                    ->get();
+
+                foreach ($carriedForwardInvoices as $oldInvoice) {
+                    if ($remainingToAllocate <= 0) break;
+
+                    $toApply = min($remainingToAllocate, $oldInvoice->balance);
+                    $oldInvoice->amount_paid += $toApply;
+                    $oldInvoice->balance -= $toApply;
+                    
+                    if ($oldInvoice->balance <= 0) {
+                        $oldInvoice->status = 'paid';
+                    }
+                    $oldInvoice->save();
+                    
+                    $remainingToAllocate -= $toApply;
+                }
+            }
 
             return $payment;
         });
