@@ -15,12 +15,23 @@ class WhatsAppController extends Controller {
     }
 
     public function logs(Request $request) {
-        $query = WhatsAppLog::query();
+        $query = WhatsAppLog::with('student');
+        
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('recipient_phone', 'like', "%{$search}%")
+                  ->orWhereHas('student', function($sq) use ($search) {
+                      $sq->where('name', 'like', "%{$search}%");
+                  });
+            });
+        }
+
         if ($request->has('status')) $query->where('status', $request->status);
         if ($request->has('date_from')) $query->whereDate('created_at', '>=', $request->date_from);
         if ($request->has('date_to')) $query->whereDate('created_at', '<=', $request->date_to);
         
-        return response()->json($query->orderByDesc('created_at')->get());
+        return response()->json($query->orderByDesc('created_at')->paginate($request->per_page ?? 15));
     }
 
     public function reminder($studentId) {
@@ -44,5 +55,11 @@ class WhatsAppController extends Controller {
         }
 
         return response()->json(['message' => "Bulk reminder queued for {$count} students."]);
+    }
+
+    public function sendVoucher($invoiceId) {
+        $invoice = \App\Models\FeeInvoice::with('student')->findOrFail($invoiceId);
+        $log = $this->whatsappService->sendVoucherDetails($invoice->student, $invoice);
+        return response()->json(['message' => 'Voucher sent to WhatsApp', 'log' => $log]);
     }
 }

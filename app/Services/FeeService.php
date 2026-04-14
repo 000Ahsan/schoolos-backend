@@ -12,23 +12,23 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class FeeService {
-    public function generateInvoices(int $month, int $year) {
-        return DB::transaction(function () use ($month, $year) {
+    public function generateInvoices(int $month, int $year, array $classIds = []) {
+        return DB::transaction(function () use ($month, $year, $classIds) {
             $settings = SchoolSetting::first();
             $dueDay = $settings ? $settings->fee_due_day : 10;
             $dueDate = Carbon::create($year, $month, $dueDay)->format('Y-m-d');
             
-            // First day of invoice month
-            $firstDayOfMonth = Carbon::create($year, $month, 1)->format('Y-m-d');
-            // Last day of invoice month
-            $lastDayOfMonth = Carbon::create($year, $month, 1)->endOfMonth()->format('Y-m-d');
-
             $currentYear = AcademicYear::where('is_current', 1)->first();
             if (!$currentYear || $currentYear->is_locked) {
                 throw new \Exception("Active academic year not found or is locked.");
             }
 
-            $students = Student::where('status', 'active')->with(['class'])->get();
+            $query = Student::where('status', 'active')->with(['class']);
+            if (!empty($classIds)) {
+                $query->whereIn('class_id', $classIds);
+            }
+            $students = $query->get();
+
             $feeStructures = FeeStructure::where('academic_year_id', $currentYear->id)
                 ->where('frequency', 'monthly')
                 ->where('is_active', 1)
@@ -49,19 +49,20 @@ class FeeService {
                 $structures = $feeStructures->get($student->class_id) ?? collect();
                 $currentCharges = $structures->sum('amount');
 
-                // Get arrears
+                // Get arrears (unpaid balances from previous months)
                 $arrears = FeeInvoice::where('student_id', $student->id)
-                    ->whereIn('status', ['pending', 'partial', 'overdue'])
+                    ->where('status', '!=', 'paid')
+                    ->where(function($q) use ($month, $year) {
+                        $q->where('year', '<', $year)
+                          ->orWhere(function($sq) use ($month, $year) {
+                              $sq->where('year', $year)->where('month', '<', $month);
+                          });
+                    })
                     ->sum('balance');
 
-                // Get active discounts
+                // Get active discounts - Removed date filters as they were removed from the schema
                 $discounts = StudentDiscount::where('student_id', $student->id)
                     ->where('is_active', 1)
-                    ->where('valid_from', '<=', $firstDayOfMonth)
-                    ->where(function ($query) use ($lastDayOfMonth) {
-                        $query->whereNull('valid_until')
-                              ->orWhere('valid_until', '>=', $lastDayOfMonth);
-                    })
                     ->get();
 
                 $discountAmount = 0;
@@ -90,23 +91,20 @@ class FeeService {
                     $discountBreakdown[] = [
                         'id' => $discount->id,
                         'name' => $discount->discount_name,
-                        'amount' => $computedDiscount
+                        'amount' => $computedDiscount,
+                        'type' => $discount->discount_type,
+                        'value' => $discount->discount_value
                     ];
                 }
 
-                // Cap discount
                 if ($discountAmount > $currentCharges) {
                     $discountAmount = $currentCharges;
                 }
 
-                // Fine is handled by a scheduler, initial fine is 0
                 $fine = 0;
                 $netAmount = $currentCharges + $arrears - $discountAmount + $fine;
                 
-                // Safety catch
-                if ($netAmount < 0) {
-                    $netAmount = 0;
-                }
+                if ($netAmount < 0) $netAmount = 0;
 
                 FeeInvoice::create([
                     'invoice_no' => 'INV-' . $year . '-' . str_pad($month, 2, '0', STR_PAD_LEFT) . '-' . uniqid(),
@@ -117,7 +115,7 @@ class FeeService {
                     'current_charges' => $currentCharges,
                     'arrears' => $arrears,
                     'discount_amount' => $discountAmount,
-                    'discount_breakdown' => json_encode($discountBreakdown),
+                    'discount_breakdown' => $discountBreakdown, // JSON cast handled by model
                     'fine' => $fine,
                     'net_amount' => $netAmount,
                     'amount_paid' => 0,
@@ -133,13 +131,31 @@ class FeeService {
         });
     }
 
-    public function recordPayment($invoiceId, $receivedBy, $amount, $method, $refNo = null, $remarks = null) {
-        return DB::transaction(function () use ($invoiceId, $receivedBy, $amount, $method, $refNo, $remarks) {
+    public function checkAndApplyFine(FeeInvoice $invoice) {
+        if ($invoice->status === 'paid' || $invoice->fine > 0) return $invoice;
+
+        $settings = SchoolSetting::first();
+        if (!$settings || $settings->late_fine_per_month <= 0) return $invoice;
+
+        $dueDate = Carbon::parse($invoice->due_date);
+        if (now()->greaterThan($dueDate)) {
+            $fine = (float) $settings->late_fine_per_month;
+            $invoice->fine = $fine;
+            $invoice->net_amount += $fine;
+            $invoice->balance += $fine;
+            if ($invoice->status === 'pending') $invoice->status = 'overdue';
+            $invoice->save();
+        }
+
+        return $invoice;
+    }
+
+    public function recordPayment($invoiceId, $receivedBy, $amount, $method, $refNo = null, $remarks = null, $date = null) {
+        return DB::transaction(function () use ($invoiceId, $receivedBy, $amount, $method, $refNo, $remarks, $date) {
             $invoice = FeeInvoice::lockForUpdate()->findOrFail($invoiceId);
-            
             if ($amount <= 0) throw new \Exception("Payment amount must be greater than zero.");
             
-            $paymentDate = now()->format('Y-m-d');
+            $paymentDate = $date ?? now()->format('Y-m-d');
             $receiptNo = 'REC-' . now()->format('Y-m-') . uniqid();
 
             $payment = FeePayment::create([
@@ -155,17 +171,9 @@ class FeeService {
 
             $invoice->amount_paid += $amount;
             $invoice->balance = $invoice->net_amount - $invoice->amount_paid;
-
-            if ($invoice->balance <= 0) {
-                // Overpayment isn't explicitly requested to be handled as advance, we'll clamp or leave as negative depending on school preference. MVP logic: Just mark paid.
-                $invoice->status = 'paid';
-            } else {
-                $invoice->status = 'partial';
-            }
-            
+            $invoice->status = $invoice->balance <= 0 ? 'paid' : 'partial';
             $invoice->save();
 
-            // Notify WhatsApp later using controller or observer
             return $payment;
         });
     }

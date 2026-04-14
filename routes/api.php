@@ -10,6 +10,8 @@ use App\Http\Controllers\Api\FeeInvoiceController;
 use App\Http\Controllers\Api\FeePaymentController;
 use App\Http\Controllers\Api\WhatsAppController;
 use App\Http\Controllers\Api\DashboardController;
+use App\Http\Controllers\Api\SchoolSettingController;
+use App\Http\Controllers\Api\FeeDefaulterController;
 
 Route::post('/v1/auth/login', [AuthController::class, 'login']);
 
@@ -39,20 +41,28 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
     Route::get('fee/structures', [FeeStructureController::class, 'index']);
     Route::post('fee/structures', [FeeStructureController::class, 'store']);
     Route::put('fee/structures/{id}', [FeeStructureController::class, 'update']);
+    Route::delete('fee/structures/{id}', [FeeStructureController::class, 'destroy']);
     
     Route::post('fee/invoices/generate', [FeeInvoiceController::class, 'generate']);
     Route::get('fee/invoices', [FeeInvoiceController::class, 'index']);
     Route::get('fee/invoices/{id}', [FeeInvoiceController::class, 'show']);
-    Route::get('fee/defaulters', function() {
-        return response()->json(\App\Models\Student::whereHas('invoices', function($q) { $q->where('balance', '>', 0); })->get());
-    });
+    Route::get('fee/defaulters', [FeeDefaulterController::class, 'index']);
+    Route::get('fee/defaulters/{id}', [FeeDefaulterController::class, 'show']);
+    Route::post('fee/defaulters/bulk-remind', [FeeDefaulterController::class, 'sendBulkReminders']);
     
-    Route::post('fee/payments', [FeePaymentController::class, 'store']);
+    Route::get('fee/payments', [FeePaymentController::class, 'index']);
+    Route::post('fee/invoices/{id}/payments', [FeePaymentController::class, 'store']);
 
     Route::post('whatsapp/reminder/{studentId}', [WhatsAppController::class, 'reminder']);
     Route::post('whatsapp/reminder/bulk', [WhatsAppController::class, 'bulkReminder']);
+    Route::post('whatsapp/voucher/{id}', [WhatsAppController::class, 'sendVoucher']);
     Route::get('whatsapp/logs', [WhatsAppController::class, 'logs']);
 
     Route::get('dashboard/stats', [DashboardController::class, 'stats']);
     Route::get('dashboard/recent-payments', [DashboardController::class, 'recentPayments']);
+    Route::get('dashboard/class-collection', [DashboardController::class, 'classCollection']);
+    Route::get('dashboard/weekly-collection', [DashboardController::class, 'weeklyCollection']);
+    
+    Route::get('school-settings', [SchoolSettingController::class, 'show']);
+    Route::post('school-settings', [SchoolSettingController::class, 'update']);
 });

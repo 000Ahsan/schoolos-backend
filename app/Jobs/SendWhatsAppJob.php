@@ -9,7 +9,9 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use App\Models\WhatsAppLog;
 
-class SendWhatsAppJob implements ShouldQueue {
+use Spatie\Multitenancy\Jobs\NotTenantAware;
+
+class SendWhatsAppJob implements ShouldQueue, NotTenantAware {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $logId;
