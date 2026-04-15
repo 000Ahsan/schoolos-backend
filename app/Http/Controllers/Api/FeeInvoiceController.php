@@ -63,14 +63,26 @@ class FeeInvoiceController extends Controller
             'month' => 'required|integer|min:1|max:12',
             'year' => 'required|integer',
             'classes' => 'nullable|array',
-            'classes.*' => 'exists:classes,id'
+            'classes.*' => 'exists:classes,id',
+            'include_admission' => 'boolean',
+            'include_annual' => 'boolean'
         ]);
+
+        // Restrict future month generation
+        $currentMonth = (int)date('n');
+        $currentYear = (int)date('Y');
+        
+        if ($request->year > $currentYear || ($request->year == $currentYear && $request->month > $currentMonth)) {
+            return response()->json(['error' => 'You cannot generate vouchers for future months.'], 400);
+        }
 
         try {
             $result = $this->feeService->generateInvoices(
                 $request->month, 
                 $request->year, 
-                $request->get('classes', [])
+                $request->get('classes', []),
+                $request->get('include_admission', true),
+                $request->get('include_annual', true)
             );
             return response()->json([
                 'message' => "Successfully generated {$result['count']} invoices."
@@ -84,5 +96,14 @@ class FeeInvoiceController extends Controller
         $invoice = FeeInvoice::with(['student.class', 'payments'])->findOrFail($id);
         $this->feeService->checkAndApplyFine($invoice);
         return response()->json($invoice);
+    }
+
+    public function destroy($id) {
+        try {
+            $this->feeService->deleteInvoice($id);
+            return response()->json(['message' => 'Invoice deleted successfully. History restored.']);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 400);
+        }
     }
 }

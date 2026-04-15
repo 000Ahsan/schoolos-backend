@@ -12,15 +12,16 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class FeeService {
-    public function generateInvoices(int $month, int $year, array $classIds = []) {
-        return DB::transaction(function () use ($month, $year, $classIds) {
+    public function generateInvoices(int $month, int $year, array $classIds = [], bool $includeAdmission = true, bool $includeAnnual = true) {
+        return DB::transaction(function () use ($month, $year, $classIds, $includeAdmission, $includeAnnual) {
             $settings = SchoolSetting::first();
             $dueDay = $settings ? $settings->fee_due_day : 10;
-            $dueDate = Carbon::create($year, $month, $dueDay)->format('Y-m-d');
+            $dueDate = Carbon::create($year, $month, $dueDay);
+            $isOverdueGeneration = now()->greaterThan($dueDate);
             
             $currentYear = AcademicYear::where('is_current', 1)->first();
-            if (!$currentYear || $currentYear->is_locked) {
-                throw new \Exception("Active academic year not found or is locked.");
+            if (!$currentYear) {
+                throw new \Exception("Active academic year not found.");
             }
 
             $query = Student::where('status', 'active')->with(['class']);
@@ -29,8 +30,8 @@ class FeeService {
             }
             $students = $query->get();
 
-            $feeStructures = FeeStructure::where('academic_year_id', $currentYear->id)
-                ->where('frequency', 'monthly')
+            // Fetch structures. We'll handle different frequencies.
+            $allStructures = FeeStructure::where('academic_year_id', $currentYear->id)
                 ->where('is_active', 1)
                 ->get()
                 ->groupBy('class_id');
@@ -46,8 +47,38 @@ class FeeService {
 
                 if ($exists) continue;
 
-                $structures = $feeStructures->get($student->class_id) ?? collect();
-                $currentCharges = $structures->sum('amount');
+                $classStructures = $allStructures->get($student->class_id) ?? collect();
+                
+                // Base: Monthly Charges
+                $currentCharges = $classStructures->where('period', 'monthly')->sum('amount');
+                
+                $additionalHeads = [];
+
+                // ONE-TIME FEES (Admission)
+                if ($includeAdmission) {
+                    $hasAnyPriorInvoice = FeeInvoice::where('student_id', $student->id)->exists();
+                    if (!$hasAnyPriorInvoice) {
+                        $oneTimeFees = $classStructures->where('period', 'one_time');
+                        foreach ($oneTimeFees as $fs) {
+                            $currentCharges += $fs->amount;
+                            $additionalHeads[] = ['name' => $fs->fee_head_name, 'amount' => $fs->amount, 'period' => 'one_time'];
+                        }
+                    }
+                }
+
+                // YEARLY FEES (Annual Fund)
+                if ($includeAnnual) {
+                    $hasInvoicesThisYear = FeeInvoice::where('student_id', $student->id)
+                        ->where('academic_year_id', $currentYear->id)
+                        ->exists();
+                    if (!$hasInvoicesThisYear) {
+                        $yearlyFees = $classStructures->where('period', 'yearly');
+                        foreach ($yearlyFees as $fs) {
+                            $currentCharges += $fs->amount;
+                            $additionalHeads[] = ['name' => $fs->fee_head_name, 'amount' => $fs->amount, 'period' => 'yearly'];
+                        }
+                    }
+                }
 
                 // Get arrears (unpaid balances from previous months)
                 $arrearsQuery = FeeInvoice::where('student_id', $student->id)
@@ -61,12 +92,12 @@ class FeeService {
 
                 $arrears = $arrearsQuery->sum('balance');
 
-                // Mark previous invoices as carried_forward to clean up records
+                // Mark previous invoices as carried_forward
                 if ($arrears > 0) {
                     $arrearsQuery->update(['status' => 'carried_forward']);
                 }
 
-                // Get active discounts - Removed date filters as they were removed from the schema
+                // Get active discounts
                 $discounts = StudentDiscount::where('student_id', $student->id)
                     ->where('is_active', 1)
                     ->get();
@@ -79,11 +110,12 @@ class FeeService {
                     if ($discount->applies_to == 'all') {
                         $applicableAmount = $currentCharges;
                     } elseif ($discount->applies_to == 'tuition_only') {
-                        $applicableAmount = $structures->filter(function($f) {
-                            return stripos($f->fee_head, 'tuition') !== false;
+                        // We assumes monthly fees usually contain tuition
+                        $applicableAmount = $classStructures->filter(function($f) {
+                            return stripos($f->fee_head_name, 'tuition') !== false && $f->period == 'monthly';
                         })->sum('amount');
                     } elseif ($discount->applies_to == 'specific_head') {
-                        $applicableAmount = $structures->where('fee_head', $discount->fee_head_name)->sum('amount');
+                        $applicableAmount = $classStructures->where('fee_head_name', $discount->fee_head_name)->sum('amount');
                     }
 
                     $computedDiscount = 0;
@@ -107,13 +139,17 @@ class FeeService {
                     $discountAmount = $currentCharges;
                 }
 
+                // Late Fee Calculation if generating for past month
                 $fine = 0;
+                if ($isOverdueGeneration && $settings && $settings->late_fine_per_month > 0) {
+                    $fine = (float) $settings->late_fine_per_month;
+                }
+
                 $netAmount = $currentCharges + $arrears - $discountAmount + $fine;
-                
                 if ($netAmount < 0) $netAmount = 0;
 
                 FeeInvoice::create([
-                    'invoice_no' => 'INV-' . $year . '-' . str_pad($month, 2, '0', STR_PAD_LEFT) . '-' . uniqid(),
+                    'invoice_no' => 'INV-' . $year . '-' . str_pad($month, 2, '0', STR_PAD_LEFT) . '-' . strtoupper(uniqid()),
                     'student_id' => $student->id,
                     'academic_year_id' => $currentYear->id,
                     'month' => $month,
@@ -121,19 +157,57 @@ class FeeService {
                     'current_charges' => $currentCharges,
                     'arrears' => $arrears,
                     'discount_amount' => $discountAmount,
-                    'discount_breakdown' => $discountBreakdown, // JSON cast handled by model
+                    'discount_breakdown' => $discountBreakdown,
                     'fine' => $fine,
                     'net_amount' => $netAmount,
                     'amount_paid' => 0,
                     'balance' => $netAmount,
-                    'due_date' => $dueDate,
-                    'status' => $netAmount > 0 ? 'pending' : 'paid',
+                    'due_date' => $dueDate->format('Y-m-d'),
+                    'status' => $netAmount <= 0 ? 'paid' : ($isOverdueGeneration ? 'overdue' : 'pending'),
                 ]);
 
                 $generatedCount++;
             }
-
             return ['success' => true, 'count' => $generatedCount];
+        });
+    }
+
+    public function deleteInvoice($id) {
+        return DB::transaction(function () use ($id) {
+            $invoice = FeeInvoice::lockForUpdate()->findOrFail($id);
+            
+            if ($invoice->status !== 'pending' && $invoice->status !== 'overdue') {
+                throw new \Exception("Only pending or overdue invoices can be deleted. Please reverse payments first if needed.");
+            }
+
+            if ($invoice->amount_paid > 0) {
+                throw new \Exception("Cannot delete invoice with recorded payments.");
+            }
+
+            // If this invoice had arrears, we need to "re-open" the previous carried_forward invoices
+            if ($invoice->arrears > 0) {
+                FeeInvoice::where('student_id', $invoice->student_id)
+                    ->where('status', 'carried_forward')
+                    ->where(function($q) use ($invoice) {
+                        $q->where('year', '<', $invoice->year)
+                          ->orWhere(function($sq) use ($invoice) {
+                              $sq->where('year', $invoice->year)->where('month', '<', $invoice->month);
+                          });
+                    })
+                    ->each(function($oldInvoice) {
+                        // Revert status based on payment progress and due date
+                        if ($oldInvoice->amount_paid > 0) {
+                            $oldInvoice->status = 'partial';
+                        } else {
+                            $dueDate = Carbon::parse($oldInvoice->due_date);
+                            $oldInvoice->status = now()->greaterThan($dueDate) ? 'overdue' : 'pending';
+                        }
+                        $oldInvoice->save();
+                    });
+            }
+
+            $invoice->delete();
+            return true;
         });
     }
 
