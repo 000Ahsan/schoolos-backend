@@ -44,7 +44,7 @@ class WhatsAppController extends Controller {
 
     public function bulkReminder(Request $request) {
         $defaulters = Student::whereHas('invoices', function($q) {
-            $q->where('balance', '>', 0);
+            $q->whereIn('status', ['pending', 'overdue', 'partial']);
         })->get();
 
         $count = 0;

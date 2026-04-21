@@ -22,7 +22,8 @@ class FeeDefaulterController extends Controller
         // Main Query: Students who have at least one invoice that is overdue and not paid
         $query = Student::with(['class', 'invoices' => function($q) use ($today) {
                 $q->whereIn('status', ['pending', 'overdue', 'partial'])
-                  ->where('due_date', '<', $today);
+                  ->where('due_date', '<', $today)
+                  ->withSum('allocations', 'allocated_amount');
             }])
             ->whereHas('invoices', function($q) use ($today) {
                 $q->whereIn('status', ['pending', 'overdue', 'partial'])
@@ -44,15 +45,23 @@ class FeeDefaulterController extends Controller
 
         // Transform results to include calculated totals
         $students->getCollection()->transform(function($student) {
-            $unpaidInvoices = $student->invoices;
+            $overdueInvoices = $student->invoices;
             
-            // For each invoice, the unpaid amount is net_amount minus what's paid
-            // However, our system seems to track status. Let's assume net_amount for non-paid ones 
-            // is what's overdue, but if it's partial we might need more logic.
-            // For simplicity, we'll use a derived sum or aggregate.
-            
-            $totalUnpaid = $unpaidInvoices->sum('net_amount'); // Simplified for now
-            // If invoices table contains current_balance, that would be better.
+            $totalDue = 0;
+            $overdueCount = 0;
+
+            foreach ($overdueInvoices as $invoice) {
+                // In my refactored show() and ledger() methods, I calculate balance as net_amount - allocations_sum_allocated_amount.
+                // Since I already have allocations loaded (assuming I will add them to the query), I'll sum them.
+                // Actually, I'll use withSum in the main query for efficiency.
+                $paid = (float) $invoice->allocations_sum_allocated_amount;
+                $balance = (float) $invoice->net_amount - $paid;
+                
+                if ($balance > 0) {
+                    $totalDue += $balance;
+                    $overdueCount++;
+                }
+            }
             
             return [
                 'id' => $student->id,
@@ -60,8 +69,8 @@ class FeeDefaulterController extends Controller
                 'roll_no' => $student->roll_no,
                 'class_name' => $student->class ? $student->class->name : 'N/A',
                 'guardian_phone' => $student->guardian_phone,
-                'unpaid_count' => $unpaidInvoices->count(),
-                'total_due' => $totalUnpaid,
+                'unpaid_count' => $overdueCount,
+                'total_due' => $totalDue,
             ];
         });
 
@@ -76,8 +85,14 @@ class FeeDefaulterController extends Controller
         $student = Student::with(['invoices' => function($q) use ($today) {
             $q->whereIn('status', ['pending', 'overdue', 'partial'])
               ->where('due_date', '<', $today)
+              ->withSum('allocations', 'allocated_amount')
               ->orderBy('due_date', 'asc');
         }])->findOrFail($id);
+
+        $student->invoices->each(function($invoice) {
+            $invoice->paid_amount = (float)($invoice->allocations_sum_allocated_amount ?? 0);
+            $invoice->balance = (float)$invoice->net_amount - $invoice->paid_amount;
+        });
 
         return response()->json([
             'student' => $student,

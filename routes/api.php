@@ -46,11 +46,14 @@ Route::middleware('auth:sanctum')->prefix('v1')->group(function () {
     Route::post('fee/invoices/generate', [FeeInvoiceController::class, 'generate']);
     Route::get('fee/invoices', [FeeInvoiceController::class, 'index']);
     Route::get('fee/invoices/{id}', [FeeInvoiceController::class, 'show']);
+    Route::delete('fee/invoices/{id}', [FeeInvoiceController::class, 'destroy']);
+    Route::get('fee/invoices/student/{studentId}/ledger', [FeeInvoiceController::class, 'ledger']);
     Route::get('fee/defaulters', [FeeDefaulterController::class, 'index']);
     Route::get('fee/defaulters/{id}', [FeeDefaulterController::class, 'show']);
     Route::post('fee/defaulters/bulk-remind', [FeeDefaulterController::class, 'sendBulkReminders']);
     
     Route::get('fee/payments', [FeePaymentController::class, 'index']);
+    Route::get('fee/payments/{id}', [FeePaymentController::class, 'show']);
     Route::post('fee/invoices/{id}/payments', [FeePaymentController::class, 'store']);
 
     Route::post('whatsapp/reminder/{studentId}', [WhatsAppController::class, 'reminder']);

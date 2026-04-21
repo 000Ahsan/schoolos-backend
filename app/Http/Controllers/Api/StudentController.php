@@ -8,7 +8,7 @@ use App\Models\Student;
 class StudentController extends Controller
 {
     public function index(Request $request) {
-        $query = Student::query();
+        $query = Student::with('class');
         if ($request->has('class_id')) {
             $query->where('class_id', $request->class_id);
         }
@@ -22,13 +22,19 @@ class StudentController extends Controller
             });
         }
 
-        // Add balance sum
-        $query->withSum(['invoices as balance' => function($q) {
-            $q->whereIn('status', ['pending', 'partial', 'overdue']);
-        }], 'balance');
+        // Add balance sum: Total Charged - Total Paid
+        $query->withSum(['invoices as total_charged' => function($q) {
+            // Include all invoices except waived to get a true lifetime charge
+            $q->where('status', '!=', 'waived');
+        }], 'net_amount');
+
+        $query->withSum('allocations as total_paid', 'allocated_amount');
 
         $students = $query->get();
         $students->transform(function($student) {
+            // Calculate balance dynamically
+            $student->balance = (float) ($student->total_charged ?? 0) - (float) ($student->total_paid ?? 0);
+            
             if ($student->photo_path) {
                 $student->photo_url = asset('storage/' . $student->photo_path);
             }
@@ -70,8 +76,15 @@ class StudentController extends Controller
     public function show($id) {
         $student = Student::with(['discounts' => function ($q) {
             $q->where('is_active', 1);
-        }, 'invoices'])->findOrFail($id);
+        }, 'invoices'])
+        ->withSum(['invoices as total_charged' => function($q) {
+            $q->where('status', '!=', 'waived');
+        }], 'net_amount')
+        ->withSum('allocations as total_paid', 'allocated_amount')
+        ->findOrFail($id);
         
+        $student->balance = (float)($student->total_charged ?? 0) - (float)($student->total_paid ?? 0);
+
         // Append full URL if photo exists
         if ($student->photo_path) {
             $student->photo_url = asset('storage/' . $student->photo_path);

@@ -30,4 +30,8 @@ class Student extends Model {
     public function whatsappLogs() {
         return $this->hasMany(WhatsAppLog::class);
     }
+
+    public function allocations() {
+        return $this->hasManyThrough(FeePaymentAllocation::class, FeeInvoice::class, 'student_id', 'invoice_id', 'id', 'id');
+    }
 }

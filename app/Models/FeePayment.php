@@ -8,8 +8,12 @@ class FeePayment extends Model {
         'payment_date' => 'date',
     ];
 
-    public function invoice() {
-        return $this->belongsTo(FeeInvoice::class, 'invoice_id');
+    public function student() {
+        return $this->belongsTo(Student::class);
+    }
+
+    public function allocations() {
+        return $this->hasMany(FeePaymentAllocation::class, 'payment_id');
     }
 
     public function receiver() {
