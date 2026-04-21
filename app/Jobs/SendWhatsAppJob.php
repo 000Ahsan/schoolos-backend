@@ -9,9 +9,9 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use App\Models\WhatsAppLog;
 
-use Spatie\Multitenancy\Jobs\NotTenantAware;
+use Stancl\Tenancy\Contracts\TenantAwareJob;
 
-class SendWhatsAppJob implements ShouldQueue, NotTenantAware {
+class SendWhatsAppJob implements ShouldQueue, TenantAwareJob {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $logId;
@@ -48,6 +48,7 @@ class SendWhatsAppJob implements ShouldQueue, NotTenantAware {
             $response = Http::post("{$nodeUrl}/send", [
                 'phone' => $this->phone,
                 'message' => $this->message,
+                'tenant_id' => tenant('id'),
             ]);
 
             if ($response->successful() && $response->json('success')) {
