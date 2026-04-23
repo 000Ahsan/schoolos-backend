@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\WhatsAppController;
 use App\Http\Controllers\Api\DashboardController;
 use App\Http\Controllers\Api\SchoolSettingController;
 use App\Http\Controllers\Api\FeeDefaulterController;
+use App\Http\Controllers\Api\AiChatController;
 use Stancl\Tenancy\Middleware\InitializeTenancyByDomain;
 use Stancl\Tenancy\Middleware\PreventAccessFromCentralDomains;
 
@@ -74,5 +75,7 @@ Route::middleware([
         
         Route::get('school-settings', [SchoolSettingController::class, 'show']);
         Route::post('school-settings', [SchoolSettingController::class, 'update']);
+
+        Route::post('ai-chat', [AiChatController::class, 'ask']);
     });
 });
