@@ -67,7 +67,7 @@ class FeeDefaulterController extends Controller
                 'id' => $student->id,
                 'name' => $student->name,
                 'roll_no' => $student->roll_no,
-                'class_name' => $student->class ? $student->class->name : 'N/A',
+                'class_name' => $student->class ? $student->class->name . ' - ' . $student->class->section : 'N/A',
                 'guardian_phone' => $student->guardian_phone,
                 'unpaid_count' => $overdueCount,
                 'total_due' => $totalDue,

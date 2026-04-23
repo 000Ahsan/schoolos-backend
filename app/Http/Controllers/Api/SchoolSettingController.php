@@ -16,6 +16,8 @@ class SchoolSettingController extends Controller
         
         $response = $setting ? $setting->toArray() : [];
         $response['tenant_id'] = tenant('id');
+        // organization_type is now stored in school_settings itself
+        $response['organization_type'] = $response['organization_type'] ?? 'school';
         
         return response()->json($response);
     }
@@ -35,7 +37,8 @@ class SchoolSettingController extends Controller
             'currency' => 'nullable|string|max:10',
             'fee_due_day' => 'nullable|integer|min:1|max:31',
             'late_fine_per_month' => 'nullable|numeric|min:0',
-            'logo' => 'nullable|image|max:2048'
+            'logo' => 'nullable|image|max:2048',
+            'organization_type' => 'nullable|in:school,coaching,academy',
         ]);
 
         if ($request->hasFile('logo')) {
@@ -55,6 +58,7 @@ class SchoolSettingController extends Controller
         $setting->fee_due_day = $validated['fee_due_day'] ?? 10;
         $setting->late_fine_per_month = $validated['late_fine_per_month'] ?? 0;
         
+        $setting->organization_type = $validated['organization_type'] ?? 'school';
         $setting->save();
 
         // Return with full URL
