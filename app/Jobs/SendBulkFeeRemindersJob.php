@@ -13,9 +13,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
-use Spatie\Multitenancy\Jobs\NotTenantAware;
-
-class SendBulkFeeRemindersJob implements ShouldQueue, NotTenantAware
+class SendBulkFeeRemindersJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 

@@ -9,9 +9,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Http;
 use App\Models\WhatsAppLog;
 
-use Stancl\Tenancy\Contracts\TenantAwareJob;
-
-class SendWhatsAppJob implements ShouldQueue, TenantAwareJob {
+class SendWhatsAppJob implements ShouldQueue {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $logId;

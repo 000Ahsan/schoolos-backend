@@ -36,7 +36,7 @@ class StudentController extends Controller
             $student->balance = (float) ($student->total_charged ?? 0) - (float) ($student->total_paid ?? 0);
             
             if ($student->photo_path) {
-                $student->photo_url = asset('storage/' . $student->photo_path);
+                $student->photo_url = tenant_asset($student->photo_path);
             }
             return $student;
         });
@@ -87,7 +87,7 @@ class StudentController extends Controller
 
         // Append full URL if photo exists
         if ($student->photo_path) {
-            $student->photo_url = asset('storage/' . $student->photo_path);
+            $student->photo_url = tenant_asset($student->photo_path);
         }
         
         return response()->json($student);

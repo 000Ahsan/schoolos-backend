@@ -11,15 +11,20 @@ class SchoolSettingController extends Controller
     public function show() {
         $setting = SchoolSetting::first();
         if ($setting && $setting->logo_path) {
-            $setting->logo_url = asset('storage/' . $setting->logo_path);
+            $setting->logo_url = tenant_asset($setting->logo_path);
         }
-        return response()->json($setting);
+        
+        $response = $setting ? $setting->toArray() : [];
+        $response['tenant_id'] = tenant('id');
+        
+        return response()->json($response);
     }
 
     public function update(Request $request) {
         $setting = SchoolSetting::first();
         if (!$setting) {
             $setting = new SchoolSetting();
+            $setting->current_academic_year = date('Y') . '-' . (date('Y') + 1);
         }
 
         $validated = $request->validate([
@@ -30,7 +35,6 @@ class SchoolSettingController extends Controller
             'currency' => 'nullable|string|max:10',
             'fee_due_day' => 'nullable|integer|min:1|max:31',
             'late_fine_per_month' => 'nullable|numeric|min:0',
-            'whatsapp_node_url' => 'nullable|string',
             'logo' => 'nullable|image|max:2048'
         ]);
 
@@ -50,13 +54,12 @@ class SchoolSettingController extends Controller
         $setting->currency = $validated['currency'] ?? 'PKR';
         $setting->fee_due_day = $validated['fee_due_day'] ?? 10;
         $setting->late_fine_per_month = $validated['late_fine_per_month'] ?? 0;
-        $setting->whatsapp_node_url = $validated['whatsapp_node_url'];
         
         $setting->save();
 
         // Return with full URL
         if ($setting->logo_path) {
-            $setting->logo_url = asset('storage/' . $setting->logo_path);
+            $setting->logo_url = tenant_asset($setting->logo_path);
         }
 
         return response()->json($setting);
