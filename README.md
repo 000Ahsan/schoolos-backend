@@ -1,59 +1,131 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SchoolOS Backend 🚀
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+The robust Laravel-based backend for SchoolOS, featuring multi-tenancy (database-per-tenant), automated fee management, and WhatsApp integration.
 
-## About Laravel
+## 🛠 Prerequisites
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.2+
+- Composer
+- MySQL 8.0+
+- Node.js & NPM (for asset management)
+- Redis (recommended for high-performance queues)
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## 📥 Installation
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+1.  **Clone the repository**:
+    ```bash
+    git clone [repository-url]
+    cd schoolos-backend
+    ```
 
-## Learning Laravel
+2.  **Install PHP dependencies**:
+    ```bash
+    composer install
+    ```
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+3.  **Install Node dependencies & build assets**:
+    ```bash
+    npm install
+    npm run build
+    ```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+4.  **Environment Setup**:
+    ```bash
+    cp .env.example .env
+    php artisan key:generate
+    ```
+    *Note: Configure `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, and `TENANCY_CENTRAL_DOMAINS` (e.g., `localhost,127.0.0.1`) in your `.env`.*
 
-## Laravel Sponsors
+---
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## 🗄 Database & Multi-tenancy
 
-### Premium Partners
+SchoolOS uses `stancl/tenancy` for a database-per-tenant architecture.
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+### 1. Central Database
+Run migrations for the central database (stores tenants and domains):
+```bash
+php artisan migrate
+```
 
-## Contributing
+### 2. Tenant Management
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+#### **Creating a New Tenant**
+You can create a new tenant and its associated domain via Tinker:
+```bash
+php artisan tinker
+```
+```php
+$tenant = App\Models\Tenant::create(['id' => 'school1']);
+$tenant->domains()->create(['domain' => 'school1.localhost']);
+```
 
-## Code of Conduct
+#### **Tenant Migrations**
+Run migrations for all existing tenant databases:
+```bash
+php artisan tenants:migrate
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+#### **Tenant Seeders**
+Seed all tenant databases with default data (Users, Academic Years, Classes, etc.):
+```bash
+php artisan tenants:seed
+```
 
-## Security Vulnerabilities
+To seed a **specific tenant** database:
+```bash
+php artisan tenants:run db:seed --tenants=[TENANT_ID]
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+#### **Legacy Data Migration**
+To migrate students from a legacy SQL dump (`pybappsc_smartdb.sql` in the root):
+```bash
+php artisan tenants:run db:seed --class=LegacyDataSeeder --tenants=[TENANT_ID]
+```
 
-## License
+---
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## 🚀 Running the Application
+
+### Start the Development Server
+```bash
+php artisan serve
+```
+
+### Run Background Workers
+Crucial for WhatsApp notifications, background fee processing, and email delivery:
+```bash
+php artisan queue:work
+```
+
+### Development with Vite
+To run the Vite dev server for live asset reloading:
+```bash
+npm run dev
+```
+
+---
+
+## 🛠 Custom Artisan Commands
+These commands are scoped to individual schools and should be run via `tenants:run`:
+
+| Command | Description |
+| :--- | :--- |
+| `invoices:mark-overdue` | Marks pending invoices as overdue if past due date. |
+| `app:migrate-to-ledger-system` | Refactors existing fee records to the new ledger system. |
+
+**Example usage:**
+```bash
+php artisan tenants:run invoices:mark-overdue --tenants=school1
+```
+
+---
+
+## 💬 WhatsApp Integration
+The backend communicates with a separate `whatsapp-service`. 
+1. Ensure the `whatsapp-service` is running.
+2. Configure the WhatsApp API URL in your `.env`.
+3. Monitor logs via `php artisan tenants:run whatsapp:logs --tenants=[TENANT_ID]`.
+
+---
+Built with ❤️ for better school management.

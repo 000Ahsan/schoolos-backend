@@ -19,6 +19,9 @@ class SchoolSettingController extends Controller
         // organization_type is now stored in school_settings itself
         $response['organization_type'] = $response['organization_type'] ?? 'school';
         
+        // Check if any invoices exist to lock certain settings
+        $response['has_invoices'] = \App\Models\FeeInvoice::exists();
+        
         return response()->json($response);
     }
 
@@ -36,6 +39,7 @@ class SchoolSettingController extends Controller
             'email' => 'nullable|email|max:100',
             'currency' => 'nullable|string|max:10',
             'fee_due_day' => 'nullable|integer|min:1|max:31',
+            'fee_calculation_mode' => 'nullable|string|max:30',
             'late_fine_per_month' => 'nullable|numeric|min:0',
             'logo' => 'nullable|image|max:2048',
             'organization_type' => 'nullable|in:school,coaching,academy',
@@ -56,6 +60,7 @@ class SchoolSettingController extends Controller
         $setting->email = $validated['email'];
         $setting->currency = $validated['currency'] ?? 'PKR';
         $setting->fee_due_day = $validated['fee_due_day'] ?? 10;
+        $setting->fee_calculation_mode = $validated['fee_calculation_mode'] ?? 'fixed_month';
         $setting->late_fine_per_month = $validated['late_fine_per_month'] ?? 0;
         
         $setting->organization_type = $validated['organization_type'] ?? 'school';

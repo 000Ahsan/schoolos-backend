@@ -15,9 +15,11 @@ class FeeService {
     public function generateInvoices(int $month, int $year, array $classIds = [], bool $includeAdmission = true, bool $includeAnnual = true) {
         return DB::transaction(function () use ($month, $year, $classIds, $includeAdmission, $includeAnnual) {
             $settings = SchoolSetting::first();
-            $dueDay = $settings ? $settings->fee_due_day : 10;
-            $dueDate = Carbon::create($year, $month, $dueDay);
-            $isOverdueGeneration = now()->greaterThan($dueDate);
+            $calculationMode = $settings->fee_calculation_mode ?? 'fixed_month';
+            
+            $defaultDueDay = $settings ? $settings->fee_due_day : 10;
+            $defaultDueDate = Carbon::create($year, $month, $defaultDueDay);
+            $isOverdueGeneration = now()->greaterThan($defaultDueDate);
             
             // Find the academic year that covers this billing month
             $billingStart = Carbon::create($year, $month, 1)->startOfMonth();
@@ -26,27 +28,30 @@ class FeeService {
                                       ->first();
                                       
             if (!$targetYear) {
-                // Fallback to current year if dates are not properly set, or throw error
-                $targetYear = AcademicYear::where('is_current', 1)->first();
-                if (!$targetYear) {
-                    throw new \Exception("Active academic year not found.");
-                }
+                throw new \Exception("No academic year defined covering {$month}/{$year}. Please check your Academic Year settings.");
             }
 
-            $query = Student::where('status', 'active')->with(['class']);
+            $billingEnd = Carbon::create($year, $month, 1)->endOfMonth();
+            $query = Student::where('status', 'active')
+                            ->where('admission_date', '<=', $billingEnd)
+                            ->with(['class']);
             if (!empty($classIds)) {
                 $query->whereIn('class_id', $classIds);
             }
             $students = $query->get();
 
-            // Fetch structures. We'll handle different frequencies.
-            $allStructures = FeeStructure::where('academic_year_id', $targetYear->id)
-                ->where('is_active', 1)
-                ->get()
-                ->groupBy('class_id');
+            // Fetch structures for the target year and classes
+            $structuresQuery = FeeStructure::where('academic_year_id', $targetYear->id)
+                ->where('is_active', 1);
+            
+            if (!empty($classIds)) {
+                $structuresQuery->whereIn('class_id', $classIds);
+            }
+
+            $allStructures = $structuresQuery->get()->groupBy('class_id');
                 
             if ($allStructures->isEmpty()) {
-                throw new \Exception("We don't have any fee structures defined for this month.");
+                throw new \Exception("No active fee structures found for the selected classes/month. Please define fee structures first.");
             }
 
             $generatedCount = 0;
@@ -140,19 +145,39 @@ class FeeService {
                     $discountAmount = $grossAmount;
                 }
 
-                // Late Fee Calculation if generating for past month
+                // Skip generating 0/empty vouchers for students who have NO charges applied for this month
+                if ($grossAmount <= 0) {
+                    continue;
+                }
+
+                // Calculate Due Date for this specific student/month
+                $studentDueDate = $defaultDueDate;
+                if ($calculationMode === 'admission_anniversary' && $student->admission_date) {
+                    $admissionDay = Carbon::parse($student->admission_date)->day;
+                    $dueOffset = $settings ? (int)$settings->fee_due_day : 0;
+                    
+                    // Create base anniversary date in the target month/year
+                    $baseAnniversary = Carbon::create($year, $month, $admissionDay);
+                    
+                    // Handle months with fewer days (e.g., Feb 31 -> Feb 28/29)
+                    if ($baseAnniversary->month != $month) {
+                        $baseAnniversary = Carbon::create($year, $month, 1)->endOfMonth();
+                    }
+                    
+                    // Add the due day offset as requested: admission date + due date days
+                    $studentDueDate = $baseAnniversary->addDays($dueOffset);
+                }
+
+                $isStudentOverdue = now()->greaterThan($studentDueDate);
+
+                // Late Fee Calculation - only applied if there are base charges
                 $fine = 0;
-                if ($isOverdueGeneration && $settings && $settings->late_fine_per_month > 0) {
+                if ($isStudentOverdue && $settings && $settings->late_fine_per_month > 0) {
                     $fine = (float) $settings->late_fine_per_month;
                 }
 
                 $netAmount = $grossAmount - $discountAmount + $fine;
                 if ($netAmount < 0) $netAmount = 0;
-
-                // Skip generating 0/empty vouchers for students who have NO structures applied
-                if ($grossAmount <= 0 && $fine <= 0) {
-                    continue;
-                }
 
                 FeeInvoice::create([
                     'invoice_no' => 'INV-' . $year . '-' . str_pad($month, 2, '0', STR_PAD_LEFT) . '-' . strtoupper(uniqid()),
@@ -166,8 +191,8 @@ class FeeService {
                     'discount_breakdown' => $discountBreakdown,
                     'fine' => $fine,
                     'net_amount' => $netAmount,
-                    'due_date' => $dueDate->format('Y-m-d'),
-                    'status' => $netAmount <= 0 ? 'paid' : ($isOverdueGeneration ? 'overdue' : 'pending'),
+                    'due_date' => $studentDueDate->format('Y-m-d'),
+                    'status' => $netAmount <= 0 ? 'paid' : ($isStudentOverdue ? 'overdue' : 'pending'),
                 ]);
 
                 $generatedCount++;
